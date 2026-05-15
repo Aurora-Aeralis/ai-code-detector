@@ -1,0 +1,10 @@
+/target/
+/ai_detection_report.json
+/ai_detection_report.md
+/*.json
+/*.md
+!/README.md
+/.env
+/.env.*
+/validation-output/
+/scan-results/
