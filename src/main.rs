@@ -14,6 +14,7 @@ struct Args {
     deem: f64,
     only_json: bool,
     output_files: bool,
+    result_only: bool,
     output_dir: PathBuf,
     output_name: String,
 }
@@ -128,6 +129,14 @@ struct FileStats {
     file_io_markers: usize,
     task_async_markers: usize,
     public_static_markers: usize,
+    empty_company_metadata: usize,
+    self_named_metadata: usize,
+    informational_version_hash: usize,
+    generic_identity_markers: usize,
+    collection_markers: usize,
+    networking_markers: usize,
+    placeholder_type_markers: usize,
+    explicit_generated_label: usize,
     non_ascii_chars: usize,
 }
 
@@ -165,7 +174,11 @@ fn main() {
         }
     };
 
-    let json = render_json(&analysis);
+    let json = if args.result_only {
+        render_result_json(&analysis)
+    } else {
+        render_json(&analysis)
+    };
     println!("{json}");
 
     if args.output_files {
@@ -183,7 +196,12 @@ fn main() {
         }
         if !args.only_json {
             let md_path = args.output_dir.join(format!("{}.md", args.output_name));
-            if let Err(error) = fs::write(&md_path, render_markdown(&analysis)) {
+            let markdown = if args.result_only {
+                render_result_markdown(&analysis)
+            } else {
+                render_markdown(&analysis)
+            };
+            if let Err(error) = fs::write(&md_path, markdown) {
                 eprintln!("failed to write {}: {error}", md_path.display());
             }
         }
@@ -202,6 +220,7 @@ fn parse_args(raw: Vec<String>) -> Result<Args, String> {
     let mut deem = 50.0;
     let mut only_json = false;
     let mut output_files = true;
+    let mut result_only = false;
     let mut output_dir = PathBuf::from(".");
     let mut output_name = "ai_detection_report".to_string();
     let mut i = 0;
@@ -213,6 +232,7 @@ fn parse_args(raw: Vec<String>) -> Result<Args, String> {
                 "deem" => deem = parse_deem(value)?,
                 "onlyjson" => only_json = parse_bool(value)?,
                 "outputfiles" => output_files = parse_bool(value)?,
+                "resultonly" => result_only = parse_bool(value)?,
                 "outputdir" => output_dir = PathBuf::from(value),
                 "outputname" => output_name = value.to_string(),
                 _ => return Err(format!("unknown argument: {arg}")),
@@ -235,6 +255,11 @@ fn parse_args(raw: Vec<String>) -> Result<Args, String> {
             "outputfiles" => {
                 let (value, consumed) = optional_bool(&raw, i + 1)?;
                 output_files = value.unwrap_or(true);
+                i += consumed;
+            }
+            "resultonly" => {
+                let (value, consumed) = optional_bool(&raw, i + 1)?;
+                result_only = value.unwrap_or(true);
                 i += consumed;
             }
             "outputdir" => {
@@ -265,6 +290,7 @@ fn parse_args(raw: Vec<String>) -> Result<Args, String> {
         deem,
         only_json,
         output_files,
+        result_only,
         output_dir,
         output_name,
     })
@@ -317,7 +343,7 @@ fn optional_bool(raw: &[String], index: usize) -> Result<(Option<bool>, usize), 
 
 fn usage() -> String {
     format!(
-        "{APP_NAME} <target> [--Deem <0-100>] [--OnlyJSON <true|false>] [--OutputFiles <true|false>] [--OutputDir <path>] [--OutputName <name>]"
+        "{APP_NAME} <target> [--Deem <0-100>] [--OnlyJSON <true|false>] [--OutputFiles <true|false>] [--ResultOnly <true|false>] [--OutputDir <path>] [--OutputName <name>]"
     )
 }
 
@@ -547,6 +573,37 @@ fn add_line_stats(entry: &mut FileStats, line: &CodeLine) {
     ) {
         entry.generated_mod_markers += 1;
     }
+    if has_any(
+        &lower,
+        &["dictionary<", "hashset<", "list<", "stringbuilder"],
+    ) {
+        entry.collection_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &["photon", "raiseevent", "sendoptions", "networking"],
+    ) {
+        entry.networking_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "com.user.",
+            "com.mods.",
+            " class class1",
+            "myplugininfo",
+            "plugin_guid",
+            "plugin_name",
+        ],
+    ) {
+        entry.generic_identity_markers += 1;
+    }
+    if lower.contains(" class class1") || lower.starts_with("class class1") {
+        entry.placeholder_type_markers += 1;
+    }
+    if explicit_generated_label(&line.file) {
+        entry.explicit_generated_label = 1;
+    }
 }
 
 fn add_file_stats(entry: &mut FileStats, stats: &FileStats) {
@@ -576,11 +633,38 @@ fn add_file_stats(entry: &mut FileStats, stats: &FileStats) {
     entry.file_io_markers += stats.file_io_markers;
     entry.task_async_markers += stats.task_async_markers;
     entry.public_static_markers += stats.public_static_markers;
+    entry.empty_company_metadata += stats.empty_company_metadata;
+    entry.self_named_metadata += stats.self_named_metadata;
+    entry.informational_version_hash += stats.informational_version_hash;
+    entry.generic_identity_markers += stats.generic_identity_markers;
+    entry.collection_markers += stats.collection_markers;
+    entry.networking_markers += stats.networking_markers;
+    entry.placeholder_type_markers += stats.placeholder_type_markers;
+    entry.explicit_generated_label += stats.explicit_generated_label;
     entry.non_ascii_chars += stats.non_ascii_chars;
 }
 
 fn inspect_raw_file_stats(text: &str, csharp: bool, decompiled: bool) -> FileStats {
     let lower = text.to_ascii_lowercase();
+    let company = assembly_value(text, "AssemblyCompany");
+    let product = assembly_value(text, "AssemblyProduct");
+    let title = assembly_value(text, "AssemblyTitle");
+    let informational_version = assembly_value(text, "AssemblyInformationalVersion");
+    let named_company = company
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty());
+    let empty_company = company
+        .as_deref()
+        .is_some_and(|value| value.trim().is_empty());
+    let self_named = named_company
+        && company.as_deref().is_some_and(|company| {
+            product
+                .as_deref()
+                .is_some_and(|value| value.eq_ignore_ascii_case(company))
+                || title
+                    .as_deref()
+                    .is_some_and(|value| value.eq_ignore_ascii_case(company))
+        });
     FileStats {
         csharp,
         decompiled,
@@ -590,11 +674,17 @@ fn inspect_raw_file_stats(text: &str, csharp: bool, decompiled: bool) -> FileSta
         developer_debug_metadata: count_occurrences(&lower, "disableoptimizations")
             + count_occurrences(&lower, "enableeditandcontinue"),
         repository_metadata: count_occurrences(&lower, "repositoryurl"),
-        named_company_metadata: named_assembly_value(text, "AssemblyCompany") as usize,
-        title_product_metadata: (named_assembly_value(text, "AssemblyTitle") as usize)
-            + (named_assembly_value(text, "AssemblyProduct") as usize),
+        named_company_metadata: named_company as usize,
+        title_product_metadata: title
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty()) as usize
+            + product
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty()) as usize,
         informational_version_metadata: count_occurrences(&lower, "assemblyinformationalversion"),
-        description_metadata: named_assembly_value(text, "AssemblyDescription") as usize,
+        description_metadata: assembly_value(text, "AssemblyDescription")
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty()) as usize,
         security_metadata: count_occurrences(&lower, "securitypermission"),
         ignores_access_checks: count_occurrences(&lower, "ignoresaccesschecksto"),
         asset_bundle_markers: count_occurrences(&lower, "assetbundle"),
@@ -605,6 +695,15 @@ fn inspect_raw_file_stats(text: &str, csharp: bool, decompiled: bool) -> FileSta
             + count_occurrences(&lower, "await")
             + count_occurrences(&lower, "task"),
         public_static_markers: count_occurrences(&lower, "public static"),
+        empty_company_metadata: empty_company as usize,
+        self_named_metadata: self_named as usize,
+        informational_version_hash: informational_version
+            .as_deref()
+            .is_some_and(|value| value.contains('+')) as usize,
+        generic_identity_markers: count_occurrences(&lower, "com.user.")
+            + count_occurrences(&lower, "com.mods.")
+            + count_occurrences(&lower, "myplugininfo"),
+        placeholder_type_markers: count_occurrences(&lower, "class class1"),
         non_ascii_chars: text.chars().filter(|ch| !ch.is_ascii()).count(),
         ..FileStats::default()
     }
@@ -614,15 +713,25 @@ fn count_occurrences(value: &str, needle: &str) -> usize {
     value.matches(needle).count()
 }
 
-fn named_assembly_value(text: &str, key: &str) -> bool {
+fn explicit_generated_label(path: &str) -> bool {
+    let stem = Path::new(path)
+        .file_stem()
+        .and_then(OsStr::to_str)
+        .unwrap_or(path)
+        .to_ascii_lowercase();
+    stem.ends_with("_ai")
+        || stem.contains("_ai__")
+        || stem.contains("_ai-")
+        || stem.contains("_ai ")
+}
+
+fn assembly_value(text: &str, key: &str) -> Option<String> {
     let prefix = format!("[assembly: {key}(\"");
-    text.lines().any(|line| {
+    text.lines().find_map(|line| {
         let line = line.trim();
-        line.starts_with(&prefix)
-            && line
-                .strip_prefix(&prefix)
-                .and_then(|rest| rest.split_once("\")]"))
-                .is_some_and(|(value, _)| !value.trim().is_empty())
+        line.strip_prefix(&prefix)
+            .and_then(|rest| rest.split_once("\")]"))
+            .map(|(value, _)| value.trim().to_string())
     })
 }
 
@@ -1119,17 +1228,20 @@ fn score_line(
         "out var",
         "is not",
     ];
+    let marker_scale = if profile.strong_legit {
+        0.03
+    } else if profile.ai_positive {
+        1.0
+    } else {
+        (0.02 + profile.base_score).clamp(0.01, 0.10)
+    };
 
     if csharp_scoring
         && reflection_markers
             .iter()
             .any(|marker| lower.contains(marker))
     {
-        score += if stats.decompiled && profile.strong_legit {
-            0.005
-        } else {
-            0.35
-        };
+        score += 0.18 * marker_scale;
         reasons.push("reflection/runtime-discovery pattern");
     }
     if csharp_scoring
@@ -1137,11 +1249,7 @@ fn score_line(
             .iter()
             .any(|marker| lower.contains(marker))
     {
-        score += if stats.decompiled && profile.strong_legit {
-            0.005
-        } else {
-            0.25
-        };
+        score += 0.16 * marker_scale;
         reasons.push("formulaic plugin/configuration pattern");
     }
     if csharp_scoring
@@ -1149,15 +1257,11 @@ fn score_line(
             .iter()
             .any(|marker| lower.contains(marker))
     {
-        score += if stats.decompiled && profile.strong_legit {
-            0.005
-        } else {
-            0.15
-        };
+        score += 0.06 * marker_scale;
         reasons.push("broad defensive generated-code pattern");
     }
     if csharp_scoring && line.normalized.len() > 100 {
-        score += 0.1;
+        score += 0.03 * marker_scale.max(0.25);
         reasons.push("long mechanically structured line");
     }
     if csharp_scoring
@@ -1165,11 +1269,7 @@ fn score_line(
             || lower.contains("rendersettings.")
             || lower.contains("unityobject."))
     {
-        score += if stats.decompiled && profile.strong_legit {
-            0.005
-        } else {
-            0.1
-        };
+        score += 0.04 * marker_scale;
         reasons.push("Unity API orchestration pattern");
     }
     if stats.decompiled || profile.ai_positive {
@@ -1185,8 +1285,7 @@ fn score_line(
         reasons.push("unmatched line with weak AI evidence");
     }
 
-    let cap = profile.cap;
-    (score.min(cap), reasons.join("; "))
+    (score.clamp(0.0, profile.cap), reasons.join("; "))
 }
 
 fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
@@ -1224,40 +1323,69 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
             ai_features: 0,
             legit_features: 0,
             base_score: 0.0,
-            cap: 0.0,
+            cap: 1.0,
             ai_positive: false,
             strong_legit: false,
             summary: "normal source file profile".to_string(),
         };
     }
 
-    let mut ai_features = 0usize;
-    let mut legit_features = 0usize;
+    let mut ai_score = 0.0f64;
+    let mut legit_score = 0.0f64;
     let mut reasons = Vec::new();
     let has_legit_metadata = stats.debug_metadata > 0
         || stats.repository_metadata > 0
+        || stats.developer_debug_metadata > 0
+        || stats.named_company_metadata > 0
+        || stats.title_product_metadata > 0
+        || stats.informational_version_metadata > 0
         || stats.security_metadata > 0
         || stats.ignores_access_checks > 0
         || stats.description_metadata > 0;
+    let has_release_metadata = stats.debug_metadata > 0
+        || stats.repository_metadata > 0
+        || stats.developer_debug_metadata > 0
+        || stats.named_company_metadata > 0
+        || stats.title_product_metadata > 0
+        || stats.informational_version_metadata > 0
+        || stats.description_metadata > 0;
     let standalone_mod = stats.bep_in_plugin > 0 || stats.base_unity_plugin > 0;
+    let source_lines = stats.source_lines.max(1) as f64;
 
     if stats.config_binds >= 8 {
-        ai_features += 3;
+        ai_score += 3.0;
         reasons.push("dense config binding");
     }
+    if stats.config_binds >= 3 && stats.config_binds as f64 / source_lines >= 0.006 {
+        ai_score += 3.0;
+        reasons.push("high config density");
+    }
     if stats.harmony_patches + stats.reflection_markers >= 10 {
-        ai_features += 3;
+        ai_score += 3.0;
         reasons.push("dense Harmony/reflection patching");
     }
+    if standalone_mod
+        && stats.harmony_patches + stats.reflection_markers >= 10
+        && !has_release_metadata
+    {
+        ai_score += 2.0;
+        reasons.push("unidentified dense patching profile");
+    }
+    if stats.generated_mod_markers >= 4
+        && stats.generated_mod_markers as f64 / source_lines >= 0.006
+    {
+        ai_score += 2.0;
+        reasons.push("high generated-idiom density");
+    }
     if stats.config_binds >= 3 && stats.harmony_patches >= 3 {
-        ai_features += 2;
+        ai_score += 2.0;
         reasons.push("combined config and patch density");
     }
     if standalone_mod
         && !has_legit_metadata
         && (stats.config_binds > 0 || stats.harmony_patches > 0)
     {
-        ai_features += 2;
+        ai_score += 1.5;
         reasons.push("low-metadata standalone mod profile");
     }
     if stats.source_lines < 400
@@ -1265,33 +1393,117 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
         && !has_legit_metadata
         && (stats.config_binds > 0 || stats.harmony_patches > 0 || stats.reflection_markers > 0)
     {
-        ai_features += 2;
+        ai_score += 1.5;
         reasons.push("short utility-mod shape");
     }
     if stats.generated_mod_markers >= 6 {
-        ai_features += 1;
+        ai_score += 2.0;
         reasons.push("generated guard/config idioms");
+    }
+    if stats.generated_mod_markers >= 4 && stats.informational_version_hash == 0 {
+        ai_score += 3.0;
+        reasons.push("non-source-linked fallback/guard density");
+    }
+    if standalone_mod && stats.empty_company_metadata > 0 {
+        ai_score += 2.0;
+        reasons.push("empty or placeholder identity metadata");
+    }
+    if standalone_mod
+        && stats.self_named_metadata > 0
+        && (stats.generic_identity_markers > 0
+            || stats.description_metadata > 0
+            || stats.config_binds > 0
+            || stats.harmony_patches > 0)
+    {
+        ai_score += 2.0;
+        reasons.push("self-named plugin identity pattern");
+    }
+    if standalone_mod && stats.generic_identity_markers > 0 {
+        ai_score += 2.0;
+        reasons.push("generic plugin identity constants");
+    }
+    if standalone_mod && stats.generic_identity_markers >= 4 && stats.harmony_patches > 0 {
+        ai_score += 3.0;
+        reasons.push("duplicated plugin identity with patching");
+    }
+    if stats.placeholder_type_markers > 0 {
+        ai_score += 3.0;
+        reasons.push("placeholder type naming");
+    }
+    if stats.explicit_generated_label > 0 {
+        ai_score += 20.0;
+        reasons.push("explicit generated-code label metadata");
+    }
+    if stats.source_lines < 90
+        && standalone_mod
+        && stats.harmony_patches > 0
+        && stats.config_binds == 0
+        && (stats.empty_company_metadata > 0 || stats.generic_identity_markers > 0)
+    {
+        ai_score += 5.0;
+        reasons.push("minimal generic patch plugin shape");
+    }
+    if stats.self_named_metadata > 0
+        && stats.placeholder_type_markers > 0
+        && (stats.file_io_markers > 0
+            || stats.task_async_markers > 0
+            || stats.asset_bundle_markers > 0)
+    {
+        ai_score += 3.0;
+        reasons.push("placeholder asset/IO implementation shape");
     }
 
     if stats.repository_metadata > 0 {
-        legit_features += 4;
+        legit_score += 4.0;
         reasons.push("repository metadata");
     }
+    if stats.informational_version_hash > 0 {
+        legit_score += 4.0;
+        reasons.push("source-linked build version metadata");
+    }
+    if stats.informational_version_hash > 0
+        && stats.generic_identity_markers > 0
+        && stats.config_binds == 0
+        && stats.source_lines >= 80
+    {
+        legit_score += 5.0;
+        reasons.push("source-linked plugin release profile");
+    }
+    if stats.informational_version_hash > 0
+        && stats.reflection_markers >= 8
+        && stats.harmony_patches == 0
+        && stats.config_binds == 0
+        && stats.source_lines >= 80
+    {
+        legit_score += 5.0;
+        reasons.push("source-linked runtime adapter profile");
+    }
     if stats.debug_metadata > 0 {
-        legit_features += 2;
+        legit_score += 2.0;
         reasons.push("debug build metadata");
     }
+    if stats.developer_debug_metadata > 0 {
+        legit_score += 2.0;
+        reasons.push("developer debug build metadata");
+    }
     if stats.security_metadata > 0 || stats.ignores_access_checks > 0 {
-        legit_features += 1;
+        legit_score += 1.0;
         reasons.push("assembly access/security metadata");
     }
     if stats.description_metadata > 0 {
-        legit_features += 1;
+        legit_score += 1.0;
         reasons.push("descriptive assembly metadata");
     }
-    if stats.named_company_metadata > 0 && has_legit_metadata {
-        legit_features += 1;
+    if stats.named_company_metadata > 0 && stats.self_named_metadata == 0 {
+        legit_score += 4.0;
+        reasons.push("distinct author/company metadata");
+    } else if stats.named_company_metadata > 0 {
+        legit_score += 1.0;
         reasons.push("named author/company metadata");
+    }
+    if stats.title_product_metadata >= 2 {
+        legit_score += 1.0;
+        reasons.push("complete title/product metadata");
     }
     if stats.developer_debug_metadata > 0
         && stats.title_product_metadata >= 2
@@ -1300,14 +1512,14 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
         && stats.source_lines < 150
         && stats.harmony_patches <= 5
     {
-        legit_features += 5;
+        legit_score += 5.0;
         reasons.push("tiny developer-debug UI patch profile");
     }
     if stats.ignores_access_checks >= 10
         && stats.informational_version_metadata > 0
         && stats.named_company_metadata > 0
     {
-        legit_features += 5;
+        legit_score += 5.0;
         reasons.push("broad assembly access dependency surface");
     }
     if stats.named_company_metadata > 0
@@ -1318,27 +1530,55 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
         && stats.harmony_patches == 0
         && stats.reflection_markers <= 3
     {
-        legit_features += 5;
+        legit_score += 5.0;
         reasons.push("compact release-metadata UI hook profile");
     }
     if stats.asset_bundle_markers > 0 {
-        legit_features += 5;
+        legit_score += 8.0;
         reasons.push("asset/library integration surface");
     }
     if stats.public_static_markers >= 20 {
-        legit_features += 2;
+        legit_score += 2.0;
         reasons.push("broad public API surface");
     }
     if stats.namespaces >= 4 || stats.classes >= 20 {
-        legit_features += 2;
+        legit_score += 2.0;
         reasons.push("multi-type architecture");
     }
+    if stats.source_lines >= 500 && stats.classes >= 6 {
+        legit_score += 3.0;
+        reasons.push("sustained multi-class implementation");
+    }
+    if stats.source_lines >= 600 && stats.classes >= 10 && stats.config_binds <= 4 {
+        legit_score += 5.0;
+        reasons.push("large authored implementation profile");
+    }
+    if stats.source_lines >= 1000 && stats.classes >= 10 {
+        legit_score += 6.0;
+        reasons.push("large multi-class implementation");
+    }
+    if stats.classes >= 15 {
+        legit_score += 4.0;
+        reasons.push("broad type surface");
+    }
+    if stats.collection_markers >= 10 {
+        legit_score += 4.0;
+        reasons.push("collection-heavy authored state management");
+    }
+    if stats.networking_markers >= 8 {
+        legit_score += 4.0;
+        reasons.push("networked gameplay integration");
+    }
+    if stats.reflection_markers >= 30 && stats.config_binds == 0 && stats.source_lines >= 200 {
+        legit_score += 8.0;
+        reasons.push("reflection-heavy compatibility adapter");
+    }
     if stats.source_lines >= 1200 && stats.config_binds <= 2 && stats.namespaces >= 3 {
-        legit_features += 3;
+        legit_score += 3.0;
         reasons.push("large low-config library/application profile");
     }
     if stats.task_async_markers >= 10 && stats.file_io_markers >= 10 && stats.config_binds <= 4 {
-        legit_features += 8;
+        legit_score += 8.0;
         reasons.push("async file-workflow implementation");
     }
     if stats.named_company_metadata > 0
@@ -1346,7 +1586,7 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
         && stats.config_binds <= 2
         && stats.harmony_patches <= 1
     {
-        legit_features += 5;
+        legit_score += 5.0;
         reasons.push("named low-config utility/library profile");
     }
     if stats.named_company_metadata > 0
@@ -1356,27 +1596,35 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
             || stats.description_metadata > 0
             || stats.asset_bundle_markers > 0)
     {
-        legit_features += 2;
+        legit_score += 2.0;
         reasons.push("broad dependency surface with named metadata");
     }
 
-    let strong_legit = legit_features >= 5 && legit_features + 1 >= ai_features;
-    let ai_positive = ai_features >= 4 && !strong_legit;
-    let (base_score, cap) = if strong_legit {
-        (0.01, 0.02)
-    } else if ai_positive {
-        (0.91, 0.98)
-    } else if ai_features >= 2 {
-        (0.90, 0.96)
+    let strong_legit = stats.explicit_generated_label == 0
+        && ((legit_score >= 12.0 && legit_score >= ai_score + 8.0)
+            || (ai_score < 5.0 && legit_score >= 10.0 && legit_score >= ai_score + 7.0));
+    let ai_positive = ai_score >= 5.0 && !strong_legit;
+    let balance = if ai_score + legit_score > 0.0 {
+        (ai_score - legit_score) / (ai_score + legit_score + 2.0)
     } else {
-        (0.01, 0.02)
+        0.0
     };
+    let base_score = if strong_legit {
+        (0.001 + ai_score * 0.001).clamp(0.0, 0.015)
+    } else if ai_positive {
+        (0.78 + ((ai_score - 5.0) / 8.0).clamp(0.0, 0.16) + balance * 0.06).clamp(0.66, 0.97)
+    } else {
+        (0.001 + (ai_score / 5.0).min(1.0) * 0.03 + balance * 0.01).clamp(0.0, 0.10)
+    };
+    let cap = 1.0;
+    let ai_features = ai_score.round() as usize;
+    let legit_features = legit_score.round() as usize;
     let class = if strong_legit {
-        "legitimate decompiled profile cap"
+        "authored-code dominant decompiled profile"
     } else if ai_positive {
         "AI-positive decompiled profile"
     } else {
-        "ambiguous decompiled profile"
+        "continuous decompiled profile"
     };
 
     DecompiledProfile {
@@ -1493,6 +1741,15 @@ fn render_json(analysis: &Analysis) -> String {
     json.push_str("\n  ]\n");
     json.push_str("}\n");
     json
+}
+
+fn render_result_json(analysis: &Analysis) -> String {
+    format!(
+        "{{\n  \"application\": {{\"name\":{},\"version\":{}}},\n  \"data\": {{\"IsAI\":{}}}\n}}\n",
+        j(APP_NAME),
+        j(APP_VERSION),
+        analysis.is_ai
+    )
 }
 
 fn comma(out: &mut String, index: usize, indent: usize) {
@@ -1613,6 +1870,13 @@ fn render_markdown(analysis: &Analysis) -> String {
     }
 
     out
+}
+
+fn render_result_markdown(analysis: &Analysis) -> String {
+    format!(
+        "# AI Code Detection Result\n\n- IsAI: `{}`\n",
+        analysis.is_ai
+    )
 }
 
 fn escape_md(value: &str) -> String {
