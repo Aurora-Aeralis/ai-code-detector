@@ -68,6 +68,10 @@ struct FileSummary {
     ai_positive: bool,
     strong_legit: bool,
     feature_summary: String,
+    purpose: String,
+    elements: Vec<String>,
+    human_match: String,
+    human_match_reasons: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -135,8 +139,28 @@ struct FileStats {
     generic_identity_markers: usize,
     collection_markers: usize,
     networking_markers: usize,
+    reflection_adapter_markers: usize,
+    detour_api_markers: usize,
+    library_registration_markers: usize,
+    source_generator_metadata_markers: usize,
+    config_description_markers: usize,
+    acceptable_value_markers: usize,
+    empty_catch_markers: usize,
     placeholder_type_markers: usize,
     explicit_generated_label: usize,
+    release_test_markers: usize,
+    fallback_suppression_markers: usize,
+    protocol_safety_markers: usize,
+    repeated_service_markers: usize,
+    serialization_markers: usize,
+    steam_markers: usize,
+    ui_markers: usize,
+    save_markers: usize,
+    economy_markers: usize,
+    localization_markers: usize,
+    loader_markers: usize,
+    performance_markers: usize,
+    patcher_utility_markers: usize,
     non_ascii_chars: usize,
 }
 
@@ -149,6 +173,14 @@ struct DecompiledProfile {
     ai_positive: bool,
     strong_legit: bool,
     summary: String,
+}
+
+#[derive(Clone, Debug)]
+struct FileAudit {
+    purpose: String,
+    elements: Vec<String>,
+    human_match: String,
+    human_match_reasons: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -425,6 +457,7 @@ fn analyze(args: &Args) -> io::Result<Analysis> {
         .map(|(path, (considered_lines, excluded_lines, score_sum))| {
             let stats = file_stats.get(&path).cloned().unwrap_or_default();
             let profile = decompiled_profile(&stats);
+            let audit = file_audit(&stats, &profile);
             let percentage = if considered_lines == 0 {
                 0.0
             } else {
@@ -442,6 +475,10 @@ fn analyze(args: &Args) -> io::Result<Analysis> {
                 ai_positive: profile.ai_positive,
                 strong_legit: profile.strong_legit,
                 feature_summary: profile.summary,
+                purpose: audit.purpose,
+                elements: audit.elements,
+                human_match: audit.human_match,
+                human_match_reasons: audit.human_match_reasons,
             }
         })
         .collect();
@@ -588,6 +625,142 @@ fn add_line_stats(entry: &mut FileStats, line: &CodeLine) {
     if has_any(
         &lower,
         &[
+            "accesstools.typebyname",
+            "accesstools.propertygetter",
+            "accesstools.field",
+            "accesstools.method",
+            "fieldinfo?",
+            "methodinfo?",
+            "resolve",
+            "tryinvoke",
+            "warnedmissing",
+        ],
+    ) {
+        entry.reflection_adapter_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "monodetourhook",
+            "prefixsignature",
+            "postfixsignature",
+            "controlflowprefix",
+            "ilhook",
+            "statemachinetarget",
+            "missingmethodexception",
+            "speakableenumerator",
+        ],
+    ) {
+        entry.detour_api_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "bepinautopluginattribute",
+            "patcherautopluginattribute",
+            "codegeneration",
+        ],
+    ) {
+        entry.source_generator_metadata_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "register",
+            "initialize",
+            "safeinvokeevent",
+            "onallbundlesloaded",
+            "loadallbundles",
+            "patchall(typeof",
+            "registered",
+        ],
+    ) {
+        entry.library_registration_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "json",
+            "serialize",
+            "deserialize",
+            "binaryreader",
+            "binarywriter",
+            "memorystream",
+        ],
+    ) {
+        entry.serialization_markers += 1;
+    }
+    if has_any(&lower, &["steam", "csteamid", "friend", "invite"]) {
+        entry.steam_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "menu",
+            "button",
+            "canvas",
+            "textmeshpro",
+            "tmpro",
+            "image",
+            "panel",
+            "popup",
+            "ui.",
+        ],
+    ) {
+        entry.ui_markers += 1;
+    }
+    if has_any(&lower, &["save", "backup", "profile", "slot", "filesystem"]) {
+        entry.save_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &["shop", "currency", "price", "valuable", "money", "economy"],
+    ) {
+        entry.economy_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &["localization", "translation", "language", "locale"],
+    ) {
+        entry.localization_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "assetbundle",
+            "resources.load",
+            "scene",
+            "level",
+            "prefab",
+            "bundle",
+        ],
+    ) {
+        entry.loader_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &["fps", "performance", "optimize", "cache", "pool", "gc."],
+    ) {
+        entry.performance_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "iloglistener",
+            "processstartinfo",
+            "process.getcurrentprocess",
+            "queue.synchronized",
+            "system.timers.timer",
+            "chainloader",
+            "patcherplugin",
+            "preloader",
+        ],
+    ) {
+        entry.patcher_utility_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
             "com.user.",
             "com.mods.",
             " class class1",
@@ -639,13 +812,35 @@ fn add_file_stats(entry: &mut FileStats, stats: &FileStats) {
     entry.generic_identity_markers += stats.generic_identity_markers;
     entry.collection_markers += stats.collection_markers;
     entry.networking_markers += stats.networking_markers;
+    entry.reflection_adapter_markers += stats.reflection_adapter_markers;
+    entry.detour_api_markers += stats.detour_api_markers;
+    entry.library_registration_markers += stats.library_registration_markers;
+    entry.source_generator_metadata_markers += stats.source_generator_metadata_markers;
+    entry.config_description_markers += stats.config_description_markers;
+    entry.acceptable_value_markers += stats.acceptable_value_markers;
+    entry.empty_catch_markers += stats.empty_catch_markers;
     entry.placeholder_type_markers += stats.placeholder_type_markers;
     entry.explicit_generated_label += stats.explicit_generated_label;
+    entry.release_test_markers += stats.release_test_markers;
+    entry.fallback_suppression_markers += stats.fallback_suppression_markers;
+    entry.protocol_safety_markers += stats.protocol_safety_markers;
+    entry.repeated_service_markers += stats.repeated_service_markers;
+    entry.serialization_markers += stats.serialization_markers;
+    entry.steam_markers += stats.steam_markers;
+    entry.ui_markers += stats.ui_markers;
+    entry.save_markers += stats.save_markers;
+    entry.economy_markers += stats.economy_markers;
+    entry.localization_markers += stats.localization_markers;
+    entry.loader_markers += stats.loader_markers;
+    entry.performance_markers += stats.performance_markers;
+    entry.patcher_utility_markers += stats.patcher_utility_markers;
     entry.non_ascii_chars += stats.non_ascii_chars;
 }
 
 fn inspect_raw_file_stats(text: &str, csharp: bool, decompiled: bool) -> FileStats {
     let lower = text.to_ascii_lowercase();
+    let body = text.lines().skip(60).collect::<Vec<_>>().join("\n");
+    let body_lower = body.to_ascii_lowercase();
     let company = assembly_value(text, "AssemblyCompany");
     let product = assembly_value(text, "AssemblyProduct");
     let title = assembly_value(text, "AssemblyTitle");
@@ -687,23 +882,133 @@ fn inspect_raw_file_stats(text: &str, csharp: bool, decompiled: bool) -> FileSta
             .is_some_and(|value| !value.trim().is_empty()) as usize,
         security_metadata: count_occurrences(&lower, "securitypermission"),
         ignores_access_checks: count_occurrences(&lower, "ignoresaccesschecksto"),
-        asset_bundle_markers: count_occurrences(&lower, "assetbundle"),
-        file_io_markers: count_occurrences(&lower, "file.")
-            + count_occurrences(&lower, "directory.")
-            + count_occurrences(&lower, "path."),
-        task_async_markers: count_occurrences(&lower, "async")
-            + count_occurrences(&lower, "await")
-            + count_occurrences(&lower, "task"),
-        public_static_markers: count_occurrences(&lower, "public static"),
+        asset_bundle_markers: count_occurrences(&body_lower, "assetbundle"),
+        file_io_markers: count_occurrences(&body_lower, "file.")
+            + count_occurrences(&body_lower, "directory.")
+            + count_occurrences(&body_lower, "path."),
+        task_async_markers: count_occurrences(&body_lower, "async")
+            + count_occurrences(&body_lower, "await")
+            + count_occurrences(&body_lower, "task"),
+        public_static_markers: count_occurrences(&body_lower, "public static"),
         empty_company_metadata: empty_company as usize,
         self_named_metadata: self_named as usize,
         informational_version_hash: informational_version
             .as_deref()
             .is_some_and(|value| value.contains('+')) as usize,
-        generic_identity_markers: count_occurrences(&lower, "com.user.")
-            + count_occurrences(&lower, "com.mods.")
-            + count_occurrences(&lower, "myplugininfo"),
-        placeholder_type_markers: count_occurrences(&lower, "class class1"),
+        generic_identity_markers: count_occurrences(&body_lower, "com.user.")
+            + count_occurrences(&body_lower, "com.mods.")
+            + count_occurrences(&body_lower, "myplugininfo"),
+        reflection_adapter_markers: count_occurrences(&body_lower, "accesstools.typebyname")
+            + count_occurrences(&body_lower, "accesstools.propertygetter")
+            + count_occurrences(&body_lower, "accesstools.field")
+            + count_occurrences(&body_lower, "accesstools.method")
+            + count_occurrences(&body_lower, "fieldinfo?")
+            + count_occurrences(&body_lower, "methodinfo?")
+            + count_occurrences(&body_lower, "tryinvoke")
+            + count_occurrences(&body_lower, "warnedmissing"),
+        detour_api_markers: count_occurrences(&body_lower, "monodetourhook")
+            + count_occurrences(&body_lower, "prefixsignature")
+            + count_occurrences(&body_lower, "postfixsignature")
+            + count_occurrences(&body_lower, "controlflowprefix")
+            + count_occurrences(&body_lower, "ilhook")
+            + count_occurrences(&body_lower, "statemachinetarget")
+            + count_occurrences(&body_lower, "missingmethodexception")
+            + count_occurrences(&body_lower, "speakableenumerator"),
+        source_generator_metadata_markers: count_occurrences(
+            &body_lower,
+            "bepinautopluginattribute",
+        ) + count_occurrences(
+            &body_lower,
+            "patcherautopluginattribute",
+        ) + count_occurrences(&body_lower, "codegeneration"),
+        library_registration_markers: count_occurrences(&body_lower, "register")
+            + count_occurrences(&body_lower, "initialize")
+            + count_occurrences(&body_lower, "safeinvokeevent")
+            + count_occurrences(&body_lower, "onallbundlesloaded")
+            + count_occurrences(&body_lower, "loadallbundles")
+            + count_occurrences(&body_lower, "patchall(typeof")
+            + count_occurrences(&body_lower, "registered"),
+        config_description_markers: count_occurrences(&body_lower, "configdescription"),
+        acceptable_value_markers: count_occurrences(&body_lower, "acceptablevalue"),
+        empty_catch_markers: count_occurrences(&body_lower, "catch\n")
+            + count_occurrences(&body_lower, "catch\r\n"),
+        placeholder_type_markers: count_occurrences(&body_lower, "class class1"),
+        release_test_markers: count_occurrences(&body_lower, "testhooks")
+            + count_occurrences(&body_lower, "fortests")
+            + count_occurrences(&body_lower, "resetfortests")
+            + count_occurrences(&body_lower, "for tests"),
+        fallback_suppression_markers: count_occurrences(&body_lower, "fallback")
+            + count_occurrences(&body_lower, "suppress")
+            + count_occurrences(&body_lower, "throttle")
+            + count_occurrences(&body_lower, "cooldown"),
+        protocol_safety_markers: count_occurrences(&body_lower, "ratelimit")
+            + count_occurrences(&body_lower, "rate limit")
+            + count_occurrences(&body_lower, "handshake")
+            + count_occurrences(&body_lower, "fragment")
+            + count_occurrences(&body_lower, "unacked")
+            + count_occurrences(&body_lower, "sequence")
+            + count_occurrences(&body_lower, "symmetric")
+            + count_occurrences(&body_lower, "publickey")
+            + count_occurrences(&body_lower, "signature")
+            + count_occurrences(&body_lower, "hmac")
+            + count_occurrences(&body_lower, "rsa"),
+        repeated_service_markers: count_occurrences(&body_lower, "handlerregistration")
+            + count_occurrences(&body_lower, "runtimeregistration")
+            + count_occurrences(&body_lower, "messagehandler")
+            + count_occurrences(&body_lower, "registrationtoken")
+            + count_occurrences(&body_lower, "slidingwindowratelimiter"),
+        serialization_markers: count_occurrences(&body_lower, "json")
+            + count_occurrences(&body_lower, "serialize")
+            + count_occurrences(&body_lower, "deserialize")
+            + count_occurrences(&body_lower, "binaryreader")
+            + count_occurrences(&body_lower, "binarywriter")
+            + count_occurrences(&body_lower, "memorystream"),
+        steam_markers: count_occurrences(&body_lower, "steam")
+            + count_occurrences(&body_lower, "csteamid")
+            + count_occurrences(&body_lower, "friend")
+            + count_occurrences(&body_lower, "invite"),
+        ui_markers: count_occurrences(&body_lower, "menu")
+            + count_occurrences(&body_lower, "button")
+            + count_occurrences(&body_lower, "canvas")
+            + count_occurrences(&body_lower, "textmeshpro")
+            + count_occurrences(&body_lower, "tmpro")
+            + count_occurrences(&body_lower, "panel")
+            + count_occurrences(&body_lower, "popup"),
+        save_markers: count_occurrences(&body_lower, "save")
+            + count_occurrences(&body_lower, "backup")
+            + count_occurrences(&body_lower, "profile")
+            + count_occurrences(&body_lower, "slot")
+            + count_occurrences(&body_lower, "filesystem"),
+        economy_markers: count_occurrences(&body_lower, "shop")
+            + count_occurrences(&body_lower, "currency")
+            + count_occurrences(&body_lower, "price")
+            + count_occurrences(&body_lower, "valuable")
+            + count_occurrences(&body_lower, "money")
+            + count_occurrences(&body_lower, "economy"),
+        localization_markers: count_occurrences(&body_lower, "localization")
+            + count_occurrences(&body_lower, "translation")
+            + count_occurrences(&body_lower, "language")
+            + count_occurrences(&body_lower, "locale"),
+        loader_markers: count_occurrences(&body_lower, "assetbundle")
+            + count_occurrences(&body_lower, "resources.load")
+            + count_occurrences(&body_lower, "scene")
+            + count_occurrences(&body_lower, "level")
+            + count_occurrences(&body_lower, "prefab")
+            + count_occurrences(&body_lower, "bundle"),
+        performance_markers: count_occurrences(&body_lower, "fps")
+            + count_occurrences(&body_lower, "performance")
+            + count_occurrences(&body_lower, "optimize")
+            + count_occurrences(&body_lower, "cache")
+            + count_occurrences(&body_lower, "pool")
+            + count_occurrences(&body_lower, "gc."),
+        patcher_utility_markers: count_occurrences(&body_lower, "iloglistener")
+            + count_occurrences(&body_lower, "processstartinfo")
+            + count_occurrences(&body_lower, "process.getcurrentprocess")
+            + count_occurrences(&body_lower, "queue.synchronized")
+            + count_occurrences(&body_lower, "system.timers.timer")
+            + count_occurrences(&body_lower, "chainloader")
+            + count_occurrences(&body_lower, "patcherplugin")
+            + count_occurrences(&body_lower, "preloader"),
         non_ascii_chars: text.chars().filter(|ch| !ch.is_ascii()).count(),
         ..FileStats::default()
     }
@@ -1306,10 +1611,19 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
                 ai_features += 1;
                 reasons.push("generated guard/config idioms");
             }
+            if stats.reflection_adapter_markers >= 4 {
+                ai_features += 2;
+                reasons.push("runtime reflection adapter");
+            }
+            if stats.config_binds >= 4 && stats.reflection_adapter_markers >= 4 {
+                ai_features += 1;
+                reasons.push("config-driven reflection workflow");
+            }
+            let base_score = (0.58 + ai_features as f64 * 0.04).clamp(0.62, 0.92);
             return DecompiledProfile {
                 ai_features,
                 legit_features: 0,
-                base_score: 1.0,
+                base_score,
                 cap: 1.0,
                 ai_positive: true,
                 strong_legit: false,
@@ -1351,10 +1665,76 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
         || stats.description_metadata > 0;
     let standalone_mod = stats.bep_in_plugin > 0 || stats.base_unity_plugin > 0;
     let source_lines = stats.source_lines.max(1) as f64;
+    let generated_library_override = stats.source_lines >= 1500
+        && stats.release_test_markers >= 10
+        && stats.fallback_suppression_markers >= 40
+        && stats.protocol_safety_markers >= 80;
+    let dense_generated_patch_override = standalone_mod
+        && stats.config_binds >= 8
+        && stats.harmony_patches >= 10
+        && stats.reflection_markers >= 30
+        && stats.generated_mod_markers >= 20;
+    let non_source_loader_override = standalone_mod
+        && stats.informational_version_hash == 0
+        && stats.source_lines >= 1000
+        && stats.reflection_markers >= 40
+        && stats.file_io_markers >= 20
+        && stats.collection_markers >= 50
+        && stats.generated_mod_markers >= 6;
+    let debug_cache_plugin_override = standalone_mod
+        && stats.informational_version_hash > 0
+        && (stats.debug_metadata > 0 || stats.developer_debug_metadata > 0)
+        && stats.source_lines >= 300
+        && stats.config_binds >= 2
+        && stats.collection_markers >= 20
+        && stats.fallback_suppression_markers >= 20;
+    let compact_generated_config_patch_override = standalone_mod
+        && stats.repository_metadata == 0
+        && stats.source_lines < 650
+        && stats.config_binds >= 5
+        && stats.harmony_patches > 0
+        && stats.config_description_markers + stats.acceptable_value_markers >= 5
+        && stats.generated_mod_markers >= 3;
+    let dense_generated_runtime_patch_override = standalone_mod
+        && stats.repository_metadata == 0
+        && stats.config_binds >= 8
+        && stats.harmony_patches + stats.reflection_markers >= 10
+        && stats.generated_mod_markers >= 6
+        && stats.public_static_markers >= 8;
+    let placeholder_reflection_network_override = standalone_mod
+        && stats.repository_metadata == 0
+        && stats.placeholder_type_markers > 0
+        && stats.reflection_markers >= 30
+        && (stats.networking_markers > 0
+            || stats.steam_markers > 0
+            || stats.protocol_safety_markers > 0)
+        && stats.developer_debug_metadata == 0;
+    let generated_override = generated_library_override
+        || dense_generated_patch_override
+        || non_source_loader_override
+        || debug_cache_plugin_override
+        || compact_generated_config_patch_override
+        || placeholder_reflection_network_override;
 
     if stats.config_binds >= 8 {
         ai_score += 3.0;
         reasons.push("dense config binding");
+    }
+    if standalone_mod
+        && !has_release_metadata
+        && stats.config_binds >= 3
+        && stats.config_description_markers + stats.acceptable_value_markers >= 3
+    {
+        ai_score += 1.5;
+        reasons.push("config option prose boilerplate");
+    }
+    if standalone_mod
+        && !has_release_metadata
+        && stats.config_binds >= 8
+        && stats.config_description_markers + stats.acceptable_value_markers >= 8
+    {
+        ai_score += 2.0;
+        reasons.push("dense bounded config option boilerplate");
     }
     if stats.config_binds >= 3 && stats.config_binds as f64 / source_lines >= 0.006 {
         ai_score += 3.0;
@@ -1363,6 +1743,28 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
     if stats.harmony_patches + stats.reflection_markers >= 10 {
         ai_score += 3.0;
         reasons.push("dense Harmony/reflection patching");
+    }
+    if standalone_mod
+        && !has_release_metadata
+        && stats.reflection_adapter_markers >= 6
+        && stats.config_binds > 0
+        && stats.source_lines < 900
+    {
+        ai_score += 2.5;
+        reasons.push("config-driven runtime reflection adapter");
+    }
+    if standalone_mod
+        && stats.reflection_adapter_markers >= 8
+        && stats.empty_catch_markers > 0
+        && stats.repository_metadata == 0
+        && stats.source_lines < 700
+        && stats.source_generator_metadata_markers == 0
+        && (!has_release_metadata
+            || stats.placeholder_type_markers > 0
+            || stats.generic_identity_markers >= 2)
+    {
+        ai_score += 2.0;
+        reasons.push("silent runtime reflection compatibility layer");
     }
     if standalone_mod
         && stats.harmony_patches + stats.reflection_markers >= 10
@@ -1399,6 +1801,14 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
     if stats.generated_mod_markers >= 6 {
         ai_score += 2.0;
         reasons.push("generated guard/config idioms");
+    }
+    if standalone_mod
+        && !has_release_metadata
+        && stats.empty_catch_markers >= 2
+        && (stats.reflection_markers >= 4 || stats.generated_mod_markers >= 4)
+    {
+        ai_score += 1.5;
+        reasons.push("silent fallback guard blocks");
     }
     if stats.generated_mod_markers >= 4 && stats.informational_version_hash == 0 {
         ai_score += 3.0;
@@ -1451,6 +1861,38 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
     {
         ai_score += 3.0;
         reasons.push("placeholder asset/IO implementation shape");
+    }
+    if generated_library_override {
+        ai_score += 20.0;
+        reasons.push("release test-hook and protocol fallback density");
+    }
+    if generated_library_override && stats.repeated_service_markers >= 60 {
+        ai_score += 12.0;
+        reasons.push("repeated service scaffold topology");
+    }
+    if dense_generated_patch_override {
+        ai_score += 24.0;
+        reasons.push("dense generated patch/config implementation");
+    }
+    if non_source_loader_override {
+        ai_score += 26.0;
+        reasons.push("non-source-linked loader implementation density");
+    }
+    if debug_cache_plugin_override {
+        ai_score += 28.0;
+        reasons.push("debug social/cache plugin scaffold density");
+    }
+    if compact_generated_config_patch_override {
+        ai_score += 12.0;
+        reasons.push("compact generated config/patch implementation");
+    }
+    if dense_generated_runtime_patch_override {
+        ai_score += 3.0;
+        reasons.push("dense generated runtime patch implementation");
+    }
+    if placeholder_reflection_network_override {
+        ai_score += 14.0;
+        reasons.push("placeholder reflection/network implementation");
     }
 
     if stats.repository_metadata > 0 {
@@ -1599,8 +2041,53 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
         legit_score += 2.0;
         reasons.push("broad dependency surface with named metadata");
     }
+    if stats.source_lines >= 500
+        && stats.collection_markers >= 15
+        && stats.config_binds <= 4
+        && stats.harmony_patches <= 8
+        && stats.release_test_markers == 0
+        && stats.protocol_safety_markers < 30
+    {
+        legit_score += 6.0;
+        reasons.push("stateful gameplay workflow profile");
+    }
+    if has_release_metadata
+        && stats.config_description_markers + stats.acceptable_value_markers >= 8
+        && stats.source_lines >= 300
+    {
+        legit_score += 2.0;
+        reasons.push("documented configuration surface with release metadata");
+    }
+    if stats.patcher_utility_markers >= 4
+        && stats.source_lines >= 250
+        && stats.config_binds <= 6
+        && stats.release_test_markers == 0
+    {
+        legit_score += 6.0;
+        reasons.push("patcher/preloader utility workflow");
+    }
+    if stats.detour_api_markers >= 20 && stats.source_lines >= 500 {
+        legit_score += 12.0;
+        reasons.push("detour API wrapper topology");
+    }
+    if stats.library_registration_markers >= 20
+        && stats.source_lines >= 600
+        && stats.classes >= 8
+        && stats.config_binds <= 8
+    {
+        legit_score += 6.0;
+        reasons.push("library registration/API topology");
+    }
+    if stats.source_generator_metadata_markers >= 2
+        && stats.source_lines < 300
+        && stats.config_binds == 0
+    {
+        legit_score += 5.0;
+        reasons.push("source-generator plugin metadata scaffold");
+    }
 
-    let strong_legit = stats.explicit_generated_label == 0
+    let strong_legit = !generated_override
+        && stats.explicit_generated_label == 0
         && ((legit_score >= 12.0 && legit_score >= ai_score + 8.0)
             || (ai_score < 5.0 && legit_score >= 10.0 && legit_score >= ai_score + 7.0));
     let ai_positive = ai_score >= 5.0 && !strong_legit;
@@ -1638,6 +2125,241 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
             "{class}; ai_features={ai_features}; legit_features={legit_features}; {}",
             reasons.join(", ")
         ),
+    }
+}
+
+fn file_audit(stats: &FileStats, profile: &DecompiledProfile) -> FileAudit {
+    let purpose = infer_purpose(stats);
+    let elements = infer_elements(stats);
+    let standalone_mod = stats.bep_in_plugin > 0 || stats.base_unity_plugin > 0;
+    let authored_source_shape = !stats.decompiled
+        && !profile.ai_positive
+        && !standalone_mod
+        && stats.csharp
+        && stats.explicit_generated_label == 0
+        && purpose != "unknown";
+    let mut reasons = Vec::new();
+    if purpose != "unknown" {
+        reasons.push(format!(
+            "implementation elements align with {purpose} purpose"
+        ));
+    } else {
+        reasons.push("insufficient domain-specific purpose evidence".to_string());
+    }
+    if profile.ai_positive {
+        reasons
+            .push("generated-code signal density outweighs authored-code indicators".to_string());
+    } else if profile.strong_legit {
+        reasons.push(
+            "authored-code architecture and metadata dominate generated-code signals".to_string(),
+        );
+    } else if authored_source_shape {
+        reasons.push(
+            "cohesive source structure appears without generated-code signal density".to_string(),
+        );
+    } else {
+        reasons.push("generated and authored indicators are both present".to_string());
+    }
+    if stats.informational_version_hash > 0 || stats.repository_metadata > 0 {
+        reasons.push("source-linked release metadata present".to_string());
+    }
+    if stats.release_test_markers > 0 || stats.fallback_suppression_markers >= 20 {
+        reasons
+            .push("test, fallback, or suppression scaffolding is materially present".to_string());
+    }
+    if stats.config_binds >= 8 || stats.harmony_patches + stats.reflection_markers >= 30 {
+        reasons.push("dense config, patching, or runtime-discovery surface present".to_string());
+    }
+    if stats.patcher_utility_markers >= 4 {
+        reasons.push("body contains patcher/preloader utility workflow".to_string());
+    }
+    if stats.detour_api_markers >= 20 {
+        reasons.push("body contains detour API wrapper topology".to_string());
+    }
+    if stats.source_generator_metadata_markers >= 2 {
+        reasons.push("body contains source-generator plugin metadata scaffold".to_string());
+    }
+    if stats.library_registration_markers >= 20 {
+        reasons.push("body contains library registration/API topology".to_string());
+    }
+    if stats.reflection_adapter_markers >= 6 {
+        reasons.push("body contains runtime reflection adapter topology".to_string());
+    }
+    if stats.config_description_markers + stats.acceptable_value_markers >= 8 {
+        reasons.push("body contains dense config-option documentation".to_string());
+    }
+    if stats.empty_catch_markers >= 2 && stats.reflection_markers >= 4 {
+        reasons.push("body contains silent reflection/fallback guard blocks".to_string());
+    }
+    if stats.repository_metadata > 0 && stats.informational_version_hash > 0 {
+        reasons.push("repository metadata and build hash provide source provenance".to_string());
+    }
+    if stats.config_binds >= 8 && stats.generated_mod_markers >= 6 {
+        reasons.push("dense config/default/fallback boilerplate present".to_string());
+    }
+    if standalone_mod && stats.generic_identity_markers >= 4 && stats.harmony_patches > 0 {
+        reasons.push("duplicated plugin identity constants appear with patching".to_string());
+    }
+    if standalone_mod
+        && stats.informational_version_hash == 0
+        && stats.loader_markers >= 20
+        && stats.file_io_markers >= 10
+        && stats.reflection_markers >= 20
+    {
+        reasons
+            .push("loader complexity appears without source-linked build provenance".to_string());
+    }
+    if stats.source_lines >= 600 && stats.classes >= 10 && stats.config_binds <= 4 {
+        reasons
+            .push("large multi-type implementation has low config-boilerplate density".to_string());
+    }
+
+    let human_match = if profile.ai_positive {
+        "low"
+    } else if profile.strong_legit || authored_source_shape {
+        "high"
+    } else {
+        "mixed"
+    }
+    .to_string();
+
+    FileAudit {
+        purpose,
+        elements,
+        human_match,
+        human_match_reasons: reasons,
+    }
+}
+
+fn infer_purpose(stats: &FileStats) -> String {
+    if stats.steam_markers >= 20 && stats.ui_markers >= 8 {
+        return "social/friends".to_string();
+    }
+    if stats.save_markers >= 20 && stats.file_io_markers >= 4 {
+        return "save/file workflow".to_string();
+    }
+    if stats.economy_markers >= 20 {
+        return "economy/shop".to_string();
+    }
+    if stats.localization_markers >= 8 || stats.non_ascii_chars >= 200 {
+        return "localization".to_string();
+    }
+    if stats.patcher_utility_markers >= 4 {
+        return "patcher/loader utility".to_string();
+    }
+    if stats.source_generator_metadata_markers >= 2 {
+        return "plugin scaffold".to_string();
+    }
+    if stats.detour_api_markers >= 20 || stats.library_registration_markers >= 20 {
+        return "library/API".to_string();
+    }
+    if stats.loader_markers >= 20 && (stats.file_io_markers >= 4 || stats.asset_bundle_markers > 0)
+    {
+        return "level/asset loader".to_string();
+    }
+    if stats.networking_markers >= 30
+        || stats.protocol_safety_markers >= 30
+        || stats.repeated_service_markers >= 20
+    {
+        return "networking".to_string();
+    }
+    if stats.ui_markers >= 20 {
+        return "UI/menu".to_string();
+    }
+    if stats.performance_markers >= 12 {
+        return "performance".to_string();
+    }
+    if stats.config_binds >= 3 || stats.harmony_patches >= 3 {
+        return "config patch".to_string();
+    }
+    if stats.source_lines >= 500
+        && (stats.public_static_markers >= 20 || stats.classes >= 12 || stats.namespaces >= 3)
+    {
+        return "library/API".to_string();
+    }
+    "unknown".to_string()
+}
+
+fn infer_elements(stats: &FileStats) -> Vec<String> {
+    let mut elements = Vec::new();
+    push_element(&mut elements, stats.harmony_patches > 0, "Harmony patches");
+    push_element(&mut elements, stats.config_binds > 0, "config bindings");
+    push_element(
+        &mut elements,
+        stats.asset_bundle_markers > 0 || stats.loader_markers >= 8,
+        "asset loading",
+    );
+    push_element(&mut elements, stats.file_io_markers > 0, "file IO");
+    push_element(
+        &mut elements,
+        stats.networking_markers > 0 || stats.protocol_safety_markers > 0,
+        "networking/RPC",
+    );
+    push_element(&mut elements, stats.steam_markers > 0, "Steam/Photon");
+    push_element(
+        &mut elements,
+        stats.serialization_markers > 0,
+        "serialization",
+    );
+    push_element(&mut elements, stats.reflection_markers > 0, "reflection");
+    push_element(
+        &mut elements,
+        stats.reflection_adapter_markers > 0,
+        "runtime reflection adapter",
+    );
+    push_element(
+        &mut elements,
+        stats.detour_api_markers > 0,
+        "detour API wrappers",
+    );
+    push_element(
+        &mut elements,
+        stats.source_generator_metadata_markers > 0,
+        "source-generator metadata",
+    );
+    push_element(
+        &mut elements,
+        stats.library_registration_markers > 0,
+        "library registration",
+    );
+    push_element(
+        &mut elements,
+        stats.public_static_markers >= 20 || stats.classes >= 12,
+        "public API surface",
+    );
+    push_element(&mut elements, stats.release_test_markers > 0, "test hooks");
+    push_element(
+        &mut elements,
+        stats.fallback_suppression_markers > 0 || stats.generated_mod_markers > 0,
+        "fallback scaffolding",
+    );
+    push_element(&mut elements, stats.ui_markers > 0, "UI/menu");
+    push_element(&mut elements, stats.save_markers > 0, "save/file workflow");
+    push_element(&mut elements, stats.economy_markers > 0, "economy/shop");
+    push_element(
+        &mut elements,
+        stats.localization_markers > 0,
+        "localization",
+    );
+    push_element(
+        &mut elements,
+        stats.performance_markers > 0,
+        "performance/cache",
+    );
+    push_element(
+        &mut elements,
+        stats.patcher_utility_markers > 0,
+        "process/preloader integration",
+    );
+    if elements.is_empty() {
+        elements.push("general source structure".to_string());
+    }
+    elements
+}
+
+fn push_element(elements: &mut Vec<String>, include: bool, value: &str) {
+    if include && !elements.iter().any(|existing| existing == value) {
+        elements.push(value.to_string());
     }
 }
 
@@ -1698,7 +2420,7 @@ fn render_json(analysis: &Analysis) -> String {
     for (index, file) in analysis.files.iter().enumerate() {
         comma(&mut json, index, 4);
         json.push_str(&format!(
-            "{{\"path\":{},\"considered_lines\":{},\"excluded_lines\":{},\"Percentage\":{},\"IsAI\":{},\"decompiled\":{},\"ai_features\":{},\"legit_features\":{},\"ai_positive\":{},\"strong_legit\":{},\"feature_summary\":{}}}",
+            "{{\"path\":{},\"considered_lines\":{},\"excluded_lines\":{},\"Percentage\":{},\"IsAI\":{},\"decompiled\":{},\"ai_features\":{},\"legit_features\":{},\"ai_positive\":{},\"strong_legit\":{},\"feature_summary\":{},\"Purpose\":{},\"Elements\":{},\"HumanMatch\":{},\"HumanMatchReasons\":{}}}",
             j(&file.path),
             file.considered_lines,
             file.excluded_lines,
@@ -1709,7 +2431,11 @@ fn render_json(analysis: &Analysis) -> String {
             file.legit_features,
             file.ai_positive,
             file.strong_legit,
-            j(&file.feature_summary)
+            j(&file.feature_summary),
+            j(&file.purpose),
+            json_string_array(&file.elements),
+            j(&file.human_match),
+            json_string_array(&file.human_match_reasons)
         ));
     }
     json.push_str("\n  ],\n");
@@ -1776,6 +2502,18 @@ fn j(value: &str) -> String {
     out
 }
 
+fn json_string_array(values: &[String]) -> String {
+    let mut out = String::from("[");
+    for (index, value) in values.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str(&j(value));
+    }
+    out.push(']');
+    out
+}
+
 fn number(value: f64) -> String {
     if (value - value.round()).abs() < 0.000_000_1 {
         format!("{:.1}", value)
@@ -1830,17 +2568,21 @@ fn render_markdown(analysis: &Analysis) -> String {
     ));
 
     out.push_str("## File Summary\n\n");
-    out.push_str("| File | Considered | Excluded | Percentage | IsAI | Features |\n");
-    out.push_str("|---|---:|---:|---:|---|---|\n");
+    out.push_str("| File | Purpose | Elements | HumanMatch | Considered | Excluded | Percentage | IsAI | Features | Human Match Reasons |\n");
+    out.push_str("|---|---|---|---|---:|---:|---:|---|---|---|\n");
     for file in &analysis.files {
         out.push_str(&format!(
-            "| `{}` | {} | {} | {} | {} | {} |\n",
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} | {} |\n",
             escape_md(&file.path),
+            escape_md(&file.purpose),
+            escape_md(&file.elements.join(", ")),
+            escape_md(&file.human_match),
             file.considered_lines,
             file.excluded_lines,
             number(file.percentage),
             file.is_ai,
-            escape_md(&file.feature_summary)
+            escape_md(&file.feature_summary),
+            escape_md(&file.human_match_reasons.join("; "))
         ));
     }
 

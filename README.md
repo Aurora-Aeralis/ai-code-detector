@@ -43,7 +43,7 @@ Minimal payload for software consumers:
 }
 ```
 
-The full JSON also includes per-file summaries, considered line records, excluded-line summaries, calibration status, and generic match reasons.
+The full JSON also includes per-file summaries, inferred purpose, detected implementation elements, human-match assessment, considered line records, excluded-line summaries, calibration status, and generic match reasons.
 
 With `ResultOnly=true`, JSON and Markdown reports include only the `IsAI` result.
 
@@ -51,4 +51,4 @@ With `ResultOnly=true`, JSON and Markdown reports include only the `IsAI` result
 
 This is a broad heuristic detector, not proof of authorship. Comments, blank lines, low-information syntax-only lines, repeated scaffold/template lines, and recognized compiler/decompiler scaffolding are excluded from the percentage.
 
-For C#, the detector looks for signals such as generated standalone plugin structure, dense Harmony/config/reflection patching, generic fallback/guard patterns, explicit generated-code labels, decompiled metadata, and authored-code indicators such as richer API/library shape, release metadata, and broad dependency surfaces.
+For C#, the detector looks for signals such as generated standalone plugin structure, dense Harmony/config/reflection patching, config-option prose boilerplate, runtime reflection adapters, silent reflection/fallback guards, loader/cache scaffolding density, release test-hook surfaces, repeated protocol fallback scaffolding, explicit generated-code labels, decompiled metadata, and authored-code indicators such as richer API/library shape, detour API wrapper topology, library registration surfaces, source-generator metadata scaffolds, patcher/preloader utility workflows, release metadata, and broad dependency surfaces.
