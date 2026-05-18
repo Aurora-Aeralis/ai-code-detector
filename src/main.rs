@@ -151,6 +151,11 @@ struct FileStats {
     release_test_markers: usize,
     fallback_suppression_markers: usize,
     protocol_safety_markers: usize,
+    raw_protocol_markers: usize,
+    immediate_gui_markers: usize,
+    runtime_discovery_markers: usize,
+    string_lookup_markers: usize,
+    sanitizer_helper_markers: usize,
     repeated_service_markers: usize,
     serialization_markers: usize,
     steam_markers: usize,
@@ -625,6 +630,33 @@ fn add_line_stats(entry: &mut FileStats, line: &CodeLine) {
     if has_any(
         &lower,
         &[
+            "new object[]",
+            "customdata is object[]",
+            "raiseevent(",
+            "receivergroup.",
+            "sendoptions.",
+            "eventsignature",
+        ],
+    ) {
+        entry.raw_protocol_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "guilayout.",
+            "gui.",
+            "guistyle",
+            "texture2d",
+            "rect(",
+            "cursor.",
+            "screen.",
+        ],
+    ) {
+        entry.immediate_gui_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
             "accesstools.typebyname",
             "accesstools.propertygetter",
             "accesstools.field",
@@ -637,6 +669,49 @@ fn add_line_stats(entry: &mut FileStats, line: &CodeLine) {
         ],
     ) {
         entry.reflection_adapter_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "appdomain.currentdomain.getassemblies",
+            "gettypes(",
+            "getmethods(",
+            "getproperties(",
+            "getfields(",
+            "bindingflags.",
+            "methodbase",
+            "parameterinfo",
+        ],
+    ) {
+        entry.runtime_discovery_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "typebyname(\"",
+            "findtype(\"",
+            "getproperty(\"",
+            "getfield(\"",
+            "getmethod(\"",
+            "resources.load<",
+            "photonnetwork.instantiateroomobject(\"",
+        ],
+    ) {
+        entry.string_lookup_markers += 1;
+    }
+    if has_any(
+        &lower,
+        &[
+            "tryparse",
+            "safeint(",
+            "safefloat(",
+            "clean(",
+            "mathf.clamp",
+            "string.isnullorwhite",
+            "return fallback",
+        ],
+    ) {
+        entry.sanitizer_helper_markers += 1;
     }
     if has_any(
         &lower,
@@ -824,6 +899,11 @@ fn add_file_stats(entry: &mut FileStats, stats: &FileStats) {
     entry.release_test_markers += stats.release_test_markers;
     entry.fallback_suppression_markers += stats.fallback_suppression_markers;
     entry.protocol_safety_markers += stats.protocol_safety_markers;
+    entry.raw_protocol_markers += stats.raw_protocol_markers;
+    entry.immediate_gui_markers += stats.immediate_gui_markers;
+    entry.runtime_discovery_markers += stats.runtime_discovery_markers;
+    entry.string_lookup_markers += stats.string_lookup_markers;
+    entry.sanitizer_helper_markers += stats.sanitizer_helper_markers;
     entry.repeated_service_markers += stats.repeated_service_markers;
     entry.serialization_markers += stats.serialization_markers;
     entry.steam_markers += stats.steam_markers;
@@ -952,6 +1032,43 @@ fn inspect_raw_file_stats(text: &str, csharp: bool, decompiled: bool) -> FileSta
             + count_occurrences(&body_lower, "signature")
             + count_occurrences(&body_lower, "hmac")
             + count_occurrences(&body_lower, "rsa"),
+        raw_protocol_markers: count_occurrences(&body_lower, "new object[]")
+            + count_occurrences(&body_lower, "customdata is object[]")
+            + count_occurrences(&body_lower, "raiseevent(")
+            + count_occurrences(&body_lower, "receivergroup.")
+            + count_occurrences(&body_lower, "sendoptions.")
+            + count_occurrences(&body_lower, "eventsignature"),
+        immediate_gui_markers: count_occurrences(&body_lower, "guilayout.")
+            + count_occurrences(&body_lower, "gui.")
+            + count_occurrences(&body_lower, "guistyle")
+            + count_occurrences(&body_lower, "texture2d")
+            + count_occurrences(&body_lower, "rect(")
+            + count_occurrences(&body_lower, "cursor.")
+            + count_occurrences(&body_lower, "screen."),
+        runtime_discovery_markers: count_occurrences(
+            &body_lower,
+            "appdomain.currentdomain.getassemblies",
+        ) + count_occurrences(&body_lower, "gettypes(")
+            + count_occurrences(&body_lower, "getmethods(")
+            + count_occurrences(&body_lower, "getproperties(")
+            + count_occurrences(&body_lower, "getfields(")
+            + count_occurrences(&body_lower, "bindingflags.")
+            + count_occurrences(&body_lower, "methodbase")
+            + count_occurrences(&body_lower, "parameterinfo"),
+        string_lookup_markers: count_occurrences(&body_lower, "typebyname(\"")
+            + count_occurrences(&body_lower, "findtype(\"")
+            + count_occurrences(&body_lower, "getproperty(\"")
+            + count_occurrences(&body_lower, "getfield(\"")
+            + count_occurrences(&body_lower, "getmethod(\"")
+            + count_occurrences(&body_lower, "resources.load<")
+            + count_occurrences(&body_lower, "photonnetwork.instantiateroomobject(\""),
+        sanitizer_helper_markers: count_occurrences(&body_lower, "tryparse")
+            + count_occurrences(&body_lower, "safeint(")
+            + count_occurrences(&body_lower, "safefloat(")
+            + count_occurrences(&body_lower, "clean(")
+            + count_occurrences(&body_lower, "mathf.clamp")
+            + count_occurrences(&body_lower, "string.isnullorwhite")
+            + count_occurrences(&body_lower, "return fallback"),
         repeated_service_markers: count_occurrences(&body_lower, "handlerregistration")
             + count_occurrences(&body_lower, "runtimeregistration")
             + count_occurrences(&body_lower, "messagehandler")
@@ -1523,6 +1640,30 @@ fn score_line(
         "restore",
         "reapply",
     ];
+    let protocol_markers = [
+        "new object[]",
+        "customdata is object[]",
+        "raiseevent(",
+        "receivergroup.",
+        "sendoptions.",
+        "eventsignature",
+    ];
+    let gui_markers = [
+        "guilayout.",
+        "gui.",
+        "guistyle",
+        "texture2d",
+        "cursor.",
+        "screen.",
+    ];
+    let runtime_probe_markers = [
+        "appdomain.currentdomain.getassemblies",
+        "gettypes(",
+        "getmethods(",
+        "getproperties(",
+        "getfields(",
+        "bindingflags.",
+    ];
     let defensive_markers = [
         "tryparse",
         "catch (exception",
@@ -1534,7 +1675,7 @@ fn score_line(
         "is not",
     ];
     let marker_scale = if profile.strong_legit {
-        0.03
+        0.01
     } else if profile.ai_positive {
         1.0
     } else {
@@ -1557,6 +1698,22 @@ fn score_line(
         score += 0.16 * marker_scale;
         reasons.push("formulaic plugin/configuration pattern");
     }
+    if csharp_scoring && protocol_markers.iter().any(|marker| lower.contains(marker)) {
+        score += 0.10 * marker_scale;
+        reasons.push("inline event protocol pattern");
+    }
+    if csharp_scoring && gui_markers.iter().any(|marker| lower.contains(marker)) {
+        score += 0.08 * marker_scale;
+        reasons.push("immediate-mode UI assembly pattern");
+    }
+    if csharp_scoring
+        && runtime_probe_markers
+            .iter()
+            .any(|marker| lower.contains(marker))
+    {
+        score += 0.10 * marker_scale;
+        reasons.push("broad runtime probe pattern");
+    }
     if csharp_scoring
         && defensive_markers
             .iter()
@@ -1566,7 +1723,12 @@ fn score_line(
         reasons.push("broad defensive generated-code pattern");
     }
     if csharp_scoring && line.normalized.len() > 100 {
-        score += 0.03 * marker_scale.max(0.25);
+        let long_line_scale = if profile.strong_legit {
+            marker_scale
+        } else {
+            marker_scale.max(0.25)
+        };
+        score += 0.03 * long_line_scale;
         reasons.push("long mechanically structured line");
     }
     if csharp_scoring
@@ -1597,6 +1759,9 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
     if !stats.decompiled {
         let standalone_mod = stats.bep_in_plugin > 0 || stats.base_unity_plugin > 0;
         if stats.csharp && standalone_mod {
+            let source_provenance = stats.repository_metadata > 0
+                || stats.informational_version_hash > 0
+                || stats.named_company_metadata > 0;
             let mut ai_features = 4usize;
             let mut reasons = vec!["standalone C# plugin structure"];
             if stats.config_binds > 0 {
@@ -1619,7 +1784,31 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
                 ai_features += 1;
                 reasons.push("config-driven reflection workflow");
             }
-            let base_score = (0.58 + ai_features as f64 * 0.04).clamp(0.62, 0.92);
+            if stats.raw_protocol_markers >= 4 && stats.networking_markers >= 4 {
+                ai_features += 3;
+                reasons.push("inline object-array network protocol");
+            }
+            if stats.immediate_gui_markers >= 8
+                && (stats.config_binds > 0 || stats.networking_markers > 0)
+            {
+                ai_features += 2;
+                reasons.push("single-file immediate-mode UI workflow");
+            }
+            if stats.runtime_discovery_markers >= 6 && stats.reflection_markers >= 6 {
+                ai_features += 2;
+                reasons.push("broad runtime discovery");
+            }
+            if !source_provenance && stats.string_lookup_markers >= 3 {
+                ai_features += 1;
+                reasons.push("string-based runtime integration lookup");
+            }
+            if stats.sanitizer_helper_markers >= 6
+                && (stats.raw_protocol_markers > 0 || stats.runtime_discovery_markers > 0)
+            {
+                ai_features += 1;
+                reasons.push("repeated safe-cast/sanitizer helpers");
+            }
+            let base_score = (0.58 + ai_features as f64 * 0.04).clamp(0.62, 0.95);
             return DecompiledProfile {
                 ai_features,
                 legit_features: 0,
@@ -1709,12 +1898,28 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
             || stats.steam_markers > 0
             || stats.protocol_safety_markers > 0)
         && stats.developer_debug_metadata == 0;
+    let inline_protocol_override = standalone_mod
+        && !has_release_metadata
+        && stats.repository_metadata == 0
+        && stats.informational_version_hash == 0
+        && stats.raw_protocol_markers >= 8
+        && stats.immediate_gui_markers >= 8
+        && stats.networking_markers >= 10;
+    let runtime_probe_override = standalone_mod
+        && !has_release_metadata
+        && stats.repository_metadata == 0
+        && stats.informational_version_hash == 0
+        && stats.runtime_discovery_markers >= 12
+        && stats.string_lookup_markers >= 6
+        && stats.empty_catch_markers >= 2;
     let generated_override = generated_library_override
         || dense_generated_patch_override
         || non_source_loader_override
         || debug_cache_plugin_override
         || compact_generated_config_patch_override
-        || placeholder_reflection_network_override;
+        || placeholder_reflection_network_override
+        || inline_protocol_override
+        || runtime_probe_override;
 
     if stats.config_binds >= 8 {
         ai_score += 3.0;
@@ -1893,6 +2098,46 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
     if placeholder_reflection_network_override {
         ai_score += 14.0;
         reasons.push("placeholder reflection/network implementation");
+    }
+    if standalone_mod
+        && stats.raw_protocol_markers >= 4
+        && stats.networking_markers >= 4
+        && !has_release_metadata
+    {
+        ai_score += 2.5;
+        reasons.push("inline object-array network protocol");
+    }
+    if standalone_mod
+        && stats.immediate_gui_markers >= 8
+        && stats.raw_protocol_markers >= 3
+        && !has_release_metadata
+    {
+        ai_score += 2.0;
+        reasons.push("single-file UI/network workflow");
+    }
+    if standalone_mod
+        && stats.runtime_discovery_markers >= 8
+        && stats.string_lookup_markers >= 4
+        && stats.informational_version_hash == 0
+        && !has_release_metadata
+    {
+        ai_score += 2.5;
+        reasons.push("runtime type discovery over explicit integration");
+    }
+    if stats.sanitizer_helper_markers >= 8
+        && (stats.raw_protocol_markers >= 4 || stats.runtime_discovery_markers >= 8)
+        && !has_release_metadata
+    {
+        ai_score += 1.5;
+        reasons.push("repeated safe-cast/sanitizer helper pattern");
+    }
+    if inline_protocol_override {
+        ai_score += 8.0;
+        reasons.push("dense inline event protocol and immediate UI implementation");
+    }
+    if runtime_probe_override {
+        ai_score += 8.0;
+        reasons.push("broad runtime probe with string-based integration lookup");
     }
 
     if stats.repository_metadata > 0 {
@@ -2097,11 +2342,11 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
         0.0
     };
     let base_score = if strong_legit {
-        (0.001 + ai_score * 0.001).clamp(0.0, 0.015)
+        (0.001 + ai_score * 0.00035).clamp(0.0, 0.01)
     } else if ai_positive {
         (0.78 + ((ai_score - 5.0) / 8.0).clamp(0.0, 0.16) + balance * 0.06).clamp(0.66, 0.97)
     } else {
-        (0.001 + (ai_score / 5.0).min(1.0) * 0.03 + balance * 0.01).clamp(0.0, 0.10)
+        (0.001 + (ai_score / 5.0).min(1.0) * 0.012 + balance * 0.006).clamp(0.0, 0.06)
     };
     let cap = 1.0;
     let ai_features = ai_score.round() as usize;
@@ -2185,6 +2430,18 @@ fn file_audit(stats: &FileStats, profile: &DecompiledProfile) -> FileAudit {
     if stats.reflection_adapter_markers >= 6 {
         reasons.push("body contains runtime reflection adapter topology".to_string());
     }
+    if stats.raw_protocol_markers >= 4 {
+        reasons.push("body contains inline object-array event protocol".to_string());
+    }
+    if stats.immediate_gui_markers >= 8 {
+        reasons.push("body contains immediate-mode UI assembly workflow".to_string());
+    }
+    if stats.runtime_discovery_markers >= 8 && stats.string_lookup_markers >= 4 {
+        reasons.push("body contains broad runtime discovery with string-based lookups".to_string());
+    }
+    if stats.sanitizer_helper_markers >= 8 {
+        reasons.push("body contains repeated safe-cast/sanitizer helper pattern".to_string());
+    }
     if stats.config_description_markers + stats.acceptable_value_markers >= 8 {
         reasons.push("body contains dense config-option documentation".to_string());
     }
@@ -2260,6 +2517,7 @@ fn infer_purpose(stats: &FileStats) -> String {
     if stats.networking_markers >= 30
         || stats.protocol_safety_markers >= 30
         || stats.repeated_service_markers >= 20
+        || stats.raw_protocol_markers >= 8
     {
         return "networking".to_string();
     }
@@ -2295,6 +2553,11 @@ fn infer_elements(stats: &FileStats) -> Vec<String> {
         stats.networking_markers > 0 || stats.protocol_safety_markers > 0,
         "networking/RPC",
     );
+    push_element(
+        &mut elements,
+        stats.raw_protocol_markers > 0,
+        "inline event protocol",
+    );
     push_element(&mut elements, stats.steam_markers > 0, "Steam/Photon");
     push_element(
         &mut elements,
@@ -2306,6 +2569,16 @@ fn infer_elements(stats: &FileStats) -> Vec<String> {
         &mut elements,
         stats.reflection_adapter_markers > 0,
         "runtime reflection adapter",
+    );
+    push_element(
+        &mut elements,
+        stats.runtime_discovery_markers > 0,
+        "runtime method discovery",
+    );
+    push_element(
+        &mut elements,
+        stats.string_lookup_markers > 0,
+        "string-based integration lookup",
     );
     push_element(
         &mut elements,
@@ -2334,6 +2607,16 @@ fn infer_elements(stats: &FileStats) -> Vec<String> {
         "fallback scaffolding",
     );
     push_element(&mut elements, stats.ui_markers > 0, "UI/menu");
+    push_element(
+        &mut elements,
+        stats.immediate_gui_markers > 0,
+        "immediate-mode UI",
+    );
+    push_element(
+        &mut elements,
+        stats.sanitizer_helper_markers > 0,
+        "safe-cast/sanitizer helpers",
+    );
     push_element(&mut elements, stats.save_markers > 0, "save/file workflow");
     push_element(&mut elements, stats.economy_markers > 0, "economy/shop");
     push_element(
