@@ -1808,6 +1808,14 @@ fn decompiled_profile(stats: &FileStats) -> DecompiledProfile {
                 ai_features += 1;
                 reasons.push("repeated safe-cast/sanitizer helpers");
             }
+            if stats.source_lines < 80
+                && stats.harmony_patches > 0
+                && stats.config_binds == 0
+                && stats.reflection_adapter_markers == 0
+            {
+                ai_features += 2;
+                reasons.push("minimal runtime patch shape");
+            }
             let base_score = (0.58 + ai_features as f64 * 0.04).clamp(0.62, 0.95);
             return DecompiledProfile {
                 ai_features,
@@ -2529,6 +2537,9 @@ fn infer_purpose(stats: &FileStats) -> String {
     }
     if stats.config_binds >= 3 || stats.harmony_patches >= 3 {
         return "config patch".to_string();
+    }
+    if stats.harmony_patches > 0 || stats.reflection_markers > 0 {
+        return "runtime patch".to_string();
     }
     if stats.source_lines >= 500
         && (stats.public_static_markers >= 20 || stats.classes >= 12 || stats.namespaces >= 3)
